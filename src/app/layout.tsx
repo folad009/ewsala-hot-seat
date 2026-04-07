@@ -20,11 +20,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Naija Daily Trivia",
+  title: "Eswala Trivia",
   description:
     "Daily trivia with a quiz-show feel — football, Nollywood, history, Afrobeats, and current affairs. For fun only.",
   openGraph: {
-    title: "Naija Daily Trivia",
+    title: "Eswala Trivia",
     description: "Daily trivia. Points for bragging rights — not cash.",
   },
 };
