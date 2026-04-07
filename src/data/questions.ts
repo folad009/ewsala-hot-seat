@@ -1,5 +1,7 @@
 import type { Question } from "@/lib/types";
 
+import { QUESTIONS_EXTRA_200 } from "./questions-extra-200";
+
 /**
  * HOW TO ADD MORE QUESTIONS
  * --------------------------
@@ -13,7 +15,7 @@ import type { Question } from "@/lib/types";
  *    with 1 (easier), 2 (medium), or 3 (harder) so the daily ladder can ramp difficulty.
  * 3. Rebuild / restart dev server. The daily picker will include new items automatically.
  *
- * Curated pool; daily quiz picks a deterministic subset per Lagos calendar day.
+ * Curated pool; each Lagos calendar day picks a random subset and shuffles order (same for everyone that day).
  */
 export const QUESTION_BANK: Question[] = [
   // Football — EPL & AFCON
@@ -273,4 +275,206 @@ export const QUESTION_BANK: Question[] = [
     options: ["Geneva", "New York City", "Paris", "Vienna"],
     correctIndex: 1,
   },
+  // Extra football
+  {
+    id: "fb-9",
+    category: "football",
+    text: "The UEFA Champions League final is usually played on which day of the week?",
+    options: ["Friday", "Saturday", "Sunday", "Wednesday"],
+    correctIndex: 1,
+  },
+  {
+    id: "fb-10",
+    category: "football",
+    text: "A penalty kick is taken from how many yards/metres from goal (standard)?",
+    options: ["9 m", "11 m", "12 m", "15 m"],
+    correctIndex: 1,
+  },
+  {
+    id: "fb-11",
+    category: "football",
+    text: "Which Nigerian city hosted matches during the 2009 FIFA U-17 World Cup?",
+    options: ["Only Lagos", "Abuja, Kano & Lagos", "Only Abuja", "Port Harcourt only"],
+    correctIndex: 1,
+  },
+  {
+    id: "fb-12",
+    category: "football",
+    text: "The offside rule mainly restricts players from being past which line without the ball?",
+    options: ["Halfway line", "Second-last defender / ball", "Centre circle", "Penalty arc"],
+    correctIndex: 1,
+  },
+  {
+    id: "fb-13",
+    category: "football",
+    text: "CAF is the governing body for football in which region?",
+    options: ["Asia", "Africa", "South America", "Europe"],
+    correctIndex: 1,
+  },
+  {
+    id: "fb-14",
+    category: "football",
+    text: "A hat-trick in football means how many goals by one player in one match?",
+    options: ["2", "3", "4", "5"],
+    correctIndex: 1,
+  },
+  // Extra Nollywood
+  {
+    id: "nl-8",
+    category: "nollywood",
+    text: "Which veteran is often called “Uncle” in Nollywood fan culture?",
+    options: ["Pete Edochie", "Olu Jacobs", "Nkem Owoh", "All are common"],
+    correctIndex: 3,
+  },
+  {
+    id: "nl-9",
+    category: "nollywood",
+    text: "“King of Boys” is associated with which director?",
+    options: ["Kemi Adetiba", "Kunle Afolayan", "Genevieve Nnaji", "Jadesola Osiberu"],
+    correctIndex: 0,
+  },
+  {
+    id: "nl-10",
+    category: "nollywood",
+    text: "Nollywood films are primarily produced in which language mix?",
+    options: ["Arabic only", "English & Nigerian languages", "French only", "Swahili only"],
+    correctIndex: 1,
+  },
+  {
+    id: "nl-11",
+    category: "nollywood",
+    text: "Which platform helped Nollywood reach wider streaming audiences in the 2020s?",
+    options: ["Only Betamax", "Netflix & others", "LaserDisc", "VHS only"],
+    correctIndex: 1,
+  },
+  {
+    id: "nl-12",
+    category: "nollywood",
+    text: "A typical Nollywood production is best described as?",
+    options: ["Only silent film", "Commercial narrative cinema", "Only documentary", "Only animation"],
+    correctIndex: 1,
+  },
+  // Extra history
+  {
+    id: "nh-8",
+    category: "nigerian_history",
+    text: "The Green-White-Green flag was adopted in which year?",
+    options: ["1959", "1960", "1963", "1970"],
+    correctIndex: 1,
+  },
+  {
+    id: "nh-9",
+    category: "nigerian_history",
+    text: "Benin City in Edo State is historically linked to which empire?",
+    options: ["Oyo Empire", "Benin Empire", "Ghana Empire", "Mali Empire"],
+    correctIndex: 1,
+  },
+  {
+    id: "nh-10",
+    category: "nigerian_history",
+    text: "Nigeria is named after which major river?",
+    options: ["Congo River", "Niger River", "Nile River", "Zambezi River"],
+    correctIndex: 1,
+  },
+  {
+    id: "nh-11",
+    category: "nigerian_history",
+    text: "The city of Kano is famous historically for what trade?",
+    options: ["Whaling", "Trans-Saharan trade & crafts", "Diamond mining only", "Tea exports"],
+    correctIndex: 1,
+  },
+  {
+    id: "nh-12",
+    category: "nigerian_history",
+    text: "Which military head of state became elected president in Nigeria’s Fourth Republic?",
+    options: ["Sani Abacha", "Olusegun Obasanjo", "Ibrahim Babangida", "Muhammadu Buhari (first coup era only)"],
+    correctIndex: 1,
+  },
+  // Extra music
+  {
+    id: "mu-8",
+    category: "afrobeats",
+    text: "Afrobeats as a global label often blends Nigerian pop with what?",
+    options: ["Only classical", "Dancehall, hip-hop & R&B influences", "Only opera", "Only jazz"],
+    correctIndex: 1,
+  },
+  {
+    id: "mu-9",
+    category: "afrobeats",
+    text: "Lagos Music icon Ayodeji Balogun is stage-named what?",
+    options: ["Burna Boy", "Wizkid", "Davido", "Olamide"],
+    correctIndex: 1,
+  },
+  {
+    id: "mu-10",
+    category: "afrobeats",
+    text: "The genre name “Afrobeat” (singular) is most tied to which artist?",
+    options: ["King Sunny Ade", "Fela Kuti", "2Baba", "Asa"],
+    correctIndex: 1,
+  },
+  {
+    id: "mu-11",
+    category: "afrobeats",
+    text: "Which Nigerian city hosts many Afrobeats recording studios and nightlife?",
+    options: ["Lagos", "London only", "Paris only", "Tokyo"],
+    correctIndex: 0,
+  },
+  {
+    id: "mu-12",
+    category: "afrobeats",
+    text: "Grammy category “Best African Music Performance” highlights what?",
+    options: ["Only folk", "African popular & traditional fusion", "Only metal", "Only country"],
+    correctIndex: 1,
+  },
+  // Extra general / current affairs
+  {
+    id: "ca-8",
+    category: "current_affairs",
+    text: "HTTP in web addresses stands for what?",
+    options: ["HyperText Transfer Protocol", "High Transfer Text Program", "Host Text Transport Path", "Hyperlink Total Protocol"],
+    correctIndex: 0,
+  },
+  {
+    id: "ca-9",
+    category: "current_affairs",
+    text: "A smartphone GPS mainly uses which system for location?",
+    options: ["Only FM radio", "Satellite navigation signals", "Only Bluetooth", "Only NFC"],
+    correctIndex: 1,
+  },
+  {
+    id: "ca-10",
+    category: "current_affairs",
+    text: "Renewable energy from wind uses what?",
+    options: ["Coal turbines", "Wind turbines", "Steam from oil only", "Diesel generators only"],
+    correctIndex: 1,
+  },
+  {
+    id: "ca-11",
+    category: "current_affairs",
+    text: "The World Health Organization (WHO) is part of which family of bodies?",
+    options: ["NATO", "United Nations system", "OPEC", "FIFA"],
+    correctIndex: 1,
+  },
+  {
+    id: "ca-12",
+    category: "current_affairs",
+    text: "Email addresses almost always contain which symbol?",
+    options: ["#", "@", "&", "%"],
+    correctIndex: 1,
+  },
+  {
+    id: "ca-13",
+    category: "current_affairs",
+    text: "Open-source software means the source code is typically what?",
+    options: ["Always secret", "Available under a license to view or modify", "Only on paper", "Deleted after install"],
+    correctIndex: 1,
+  },
+  {
+    id: "ca-14",
+    category: "current_affairs",
+    text: "A QR code is mainly used to do what quickly?",
+    options: ["Boil water", "Encode text/URLs for scanning", "Print money", "Measure temperature only"],
+    correctIndex: 1,
+  },
+  ...QUESTIONS_EXTRA_200,
 ];

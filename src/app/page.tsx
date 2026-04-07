@@ -25,7 +25,7 @@ export default async function Home({
       />
 
       <div className="mx-auto w-full max-w-5xl flex-1 px-4 py-8 sm:px-8 sm:py-12">
-        <header className="mb-8 max-w-2xl space-y-3 sm:mb-10">
+        <header className="mb-8 space-y-3 sm:mb-10 text-center">
           <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-amber-400/90">
             Daily trivia
           </p>
@@ -35,13 +35,6 @@ export default async function Home({
              Trivia
             </span>
           </h1>
-          <p className="max-w-lg text-sm leading-relaxed text-slate-400">
-            A trivia game with a classic TV quiz vibe — one question at a time, lifelines,
-            and a points ladder.{" "}
-            <strong className="font-medium text-slate-300">
-              Just for fun: no real money or prizes.
-            </strong>
-          </p>
         </header>
 
         <DailyTrivia initialDateParam={dateParam} />

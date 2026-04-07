@@ -1,24 +1,19 @@
 "use client";
 
-import { LifelinePaywall } from "@/components/LifelinePaywall";
 import { CATEGORY_LABELS } from "@/lib/category-labels";
-import { chargeForLifeline } from "@/lib/charge-lifeline";
 import {
   isDailyPlayCompleted,
   markDailyPlayCompleted,
 } from "@/lib/daily-play-limit";
 import {
-  formatNgn,
-  getLifelineFeeNgn,
-  type LifelineKind,
-} from "@/lib/lifeline-pricing";
+  pickLossEncouragement,
+  pickWinCongratulations,
+  WALK_SUB,
+} from "@/lib/game-end-messages";
 import { pointsBeforeQuestion } from "@/lib/ladder";
 import { SECONDS_PER_QUESTION } from "@/lib/question-timer";
 import type { CategoryId, DailyQuiz } from "@/lib/types";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-
-const skipLifelinePayment =
-  process.env.NEXT_PUBLIC_SKIP_LIFELINE_PAYMENT === "true";
 
 type Props = {
   initialDateParam?: string | null;
@@ -67,8 +62,6 @@ export function DailyTrivia({ initialDateParam }: Props) {
   const [audienceUsed, setAudienceUsed] = useState(false);
   const [hiddenIndices, setHiddenIndices] = useState<number[]>([]);
   const [audiencePct, setAudiencePct] = useState<number[] | null>(null);
-  const [paywallKind, setPaywallKind] = useState<LifelineKind | null>(null);
-  const [paywallProcessing, setPaywallProcessing] = useState(false);
 
   const quizRef = useRef(quiz);
   const qRef = useRef(quiz?.questions[0]);
@@ -97,8 +90,6 @@ export function DailyTrivia({ initialDateParam }: Props) {
     setHiddenIndices([]);
     setAudiencePct(null);
     setSecondsLeft(SECONDS_PER_QUESTION);
-    setPaywallKind(null);
-    setPaywallProcessing(false);
     try {
       const res = await fetch(dailyUrl);
       if (!res.ok) throw new Error("Could not load quiz");
@@ -132,9 +123,6 @@ export function DailyTrivia({ initialDateParam }: Props) {
 
   const alreadyPlayedToday = quiz ? isDailyPlayCompleted(quiz.date) : false;
 
-  const feeFifty = useMemo(() => getLifelineFeeNgn("fifty"), []);
-  const feeAudience = useMemo(() => getLifelineFeeNgn("audience"), []);
-
   useEffect(() => {
     answerLockRef.current = false;
     setSelected(null);
@@ -143,8 +131,6 @@ export function DailyTrivia({ initialDateParam }: Props) {
     setAudiencePct(null);
     setError(null);
     setSecondsLeft(SECONDS_PER_QUESTION);
-    setPaywallKind(null);
-    setPaywallProcessing(false);
   }, [currentIndex, q?.id]);
 
   const submitTimeout = useCallback(async () => {
@@ -277,51 +263,13 @@ export function DailyTrivia({ initialDateParam }: Props) {
     }
   }
 
-  function requestFiftyFifty() {
-    if (!quiz || !q || fiftyUsed) return;
-    if (skipLifelinePayment) {
-      void applyFiftyFifty();
-      return;
-    }
-    setPaywallKind("fifty");
-  }
-
-  function requestAudiencePoll() {
-    if (!quiz || !q || audienceUsed) return;
-    if (skipLifelinePayment) {
-      void applyAudiencePoll();
-      return;
-    }
-    setPaywallKind("audience");
-  }
-
-  async function confirmPaywall() {
-    if (!quiz || !q || !paywallKind) return;
-    setPaywallProcessing(true);
-    setError(null);
-    const result = await chargeForLifeline(paywallKind, {
-      quizDate: quiz.date,
-      questionId: q.id,
-    });
-    if (!result.ok) {
-      setError(result.error ?? "Payment failed");
-      setPaywallProcessing(false);
-      return;
-    }
-    const kind = paywallKind;
-    setPaywallKind(null);
-    setPaywallProcessing(false);
-    if (kind === "fifty") await applyFiftyFifty();
-    else await applyAudiencePoll();
-  }
-
   function bankPointsAndExit() {
     setGameEnd({ kind: "walk", points: bankedPoints });
   }
 
   if (loading) {
     return (
-      <div className="flex min-h-[320px] flex-col items-center justify-center gap-4 rounded-[2rem] border border-white/[0.06] bg-slate-950/40 px-8 py-16">
+      <div className="flex min-h-80 flex-col items-center justify-center gap-4 rounded-4xl border border-white/6 bg-slate-950/40 px-8 py-16">
         <div className="h-10 w-10 animate-pulse rounded-full border-2 border-amber-400/40 border-t-transparent" />
         <p className="text-sm text-slate-500">Loading today’s questions…</p>
       </div>
@@ -330,7 +278,7 @@ export function DailyTrivia({ initialDateParam }: Props) {
 
   if (loadError || !quiz) {
     return (
-      <div className="rounded-[2rem] border border-white/[0.08] bg-slate-900/50 p-10 text-center backdrop-blur-sm">
+      <div className="rounded-4xl border border-white/8 bg-slate-900/50 p-10 text-center backdrop-blur-sm">
         <p className="text-slate-200">{loadError ?? "No quiz"}</p>
         <button
           type="button"
@@ -356,14 +304,12 @@ export function DailyTrivia({ initialDateParam }: Props) {
       gameEnd.kind === "won"
         ? "You cleared every level today — top of the ladder."
         : gameEnd.kind === "walk"
-          ? "Smart play. Your score is locked in for this round."
-          : gameEnd.reason === "timeout"
-            ? "You ran out of time on that question — same rules as a wrong answer."
-            : "Checkpoints keep part of your score if you had reached one.";
+          ? WALK_SUB
+          : pickLossEncouragement(gameEnd.reason);
 
     return (
-      <div className="space-y-8">
-        <div className="relative overflow-hidden rounded-[2rem] border border-amber-500/25 bg-gradient-to-br from-amber-500/[0.08] via-slate-900/80 to-slate-950 p-8 sm:p-10">
+      <div className="mx-auto max-w-lg space-y-8 text-center">
+        <div className="relative flex flex-col items-center overflow-hidden rounded-4xl border border-amber-500/25 bg-linear-to-br from-amber-500/8 via-slate-900/80 to-slate-950 px-6 py-10 sm:px-10 sm:py-12">
           <div
             aria-hidden
             className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full bg-amber-400/10 blur-3xl"
@@ -371,18 +317,23 @@ export function DailyTrivia({ initialDateParam }: Props) {
           <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-amber-400/90">
             {title}
           </p>
-          <p className="mt-4 font-[family-name:var(--font-stage)] text-5xl font-bold tabular-nums tracking-tight text-white sm:text-6xl">
+          {gameEnd.kind === "won" && (
+            <p className="mt-5 max-w-md text-lg font-semibold leading-snug text-amber-100/95 sm:text-xl">
+              {pickWinCongratulations(quiz.date)}
+            </p>
+          )}
+          <p className="mt-6 font-(family-name:--font-stage) text-5xl font-bold tabular-nums tracking-tight text-white sm:text-6xl">
             {formatPoints(gameEnd.points)}
           </p>
-          <p className="mt-4 max-w-md text-sm leading-relaxed text-slate-400">{sub}</p>
-          <p className="mt-6 text-xs text-slate-600">
-            Remember: this is trivia for fun — no cash or real prizes.
+          <p className="mt-5 max-w-md text-sm leading-relaxed text-slate-400">{sub}</p>
+          <p className="mt-8 text-xs text-slate-600">
+            Remember: this is trivia for fun — no cash prizes.
           </p>
         </div>
         <button
           type="button"
           onClick={() => void load()}
-          className="w-full rounded-full border border-white/10 bg-white/[0.03] py-3.5 text-sm font-medium text-slate-200 transition hover:bg-white/[0.06]"
+          className="w-full rounded-full border border-white/10 bg-white/3 py-3.5 text-sm font-medium text-slate-200 transition hover:bg-white/6"
         >
           {alreadyPlayedToday ? "Done for today" : "Back"}
         </button>
@@ -392,18 +343,16 @@ export function DailyTrivia({ initialDateParam }: Props) {
 
   if (alreadyPlayedToday && !started) {
     return (
-      <div className="rounded-[2rem] border border-amber-500/25 bg-gradient-to-b from-slate-900/90 to-slate-950 p-10 text-center">
-        <p className="font-[family-name:var(--font-stage)] text-2xl font-bold uppercase tracking-tight text-white">
+      <div className="rounded-4xl border border-amber-500/25 bg-linear-to-b from-slate-900/90 to-slate-950 p-10 text-center">
+        <p className="font-(family-name:--font-stage) text-2xl font-bold uppercase tracking-tight text-white">
           You’ve already played today
         </p>
-        <p className="mt-3 text-sm text-slate-400">
+        {/*<p className="mt-3 text-sm text-slate-400">
           One run per calendar day (Lagos time) for this quiz date:{" "}
           <span className="font-mono text-slate-300">{quiz.date}</span>
-        </p>
-        <p className="mt-4 text-xs text-slate-600">
-          Come back after midnight Lagos for a new set. Use{" "}
-          <code className="rounded bg-white/5 px-1.5 text-slate-500">?date=</code> in dev to try
-          another day.
+        </p>*/}
+        <p className="mt-4 text-lg text-white">
+          Come back after midnight for a new set of questions.
         </p>
       </div>
     );
@@ -413,31 +362,32 @@ export function DailyTrivia({ initialDateParam }: Props) {
     const topPts = ladder[ladder.length - 1] ?? 0;
     return (
       <div className="grid gap-6 lg:grid-cols-[1fr_280px] lg:items-stretch">
-        <div className="flex flex-col justify-between rounded-[2rem] border border-white/[0.07] bg-gradient-to-b from-slate-900/80 to-slate-950/90 p-8 sm:p-10">
+        <div className="flex flex-col justify-between rounded-4xl border border-white/[0.07] bg-linear-to-b from-slate-900/80 to-slate-950/90 p-8 sm:p-10">
           <div className="space-y-4">
-            <h2 className="font-[family-name:var(--font-stage)] text-2xl font-bold uppercase tracking-tight text-white sm:text-3xl">
+            <h2 className="font-(family-name:--font-stage) text-2xl font-bold uppercase tracking-tight text-white sm:text-3xl">
               In the hot seat
             </h2>
             <p className="text-sm leading-relaxed text-slate-400">
               You have <strong className="text-amber-200">{SECONDS_PER_QUESTION} seconds</strong>{" "}
               per question — run out of time and it counts like a wrong answer. Lifelines (50:50 &
-              audience) are <strong className="text-slate-200">paid per use</strong> before the hint
-              is shown ({formatNgn(feeFifty)} / {formatNgn(feeAudience)} by default — configurable).
-              Once each per game after payment.
+              audience poll) can help, but use them wisely.
             </p>
-            <p className="rounded-xl border border-amber-500/20 bg-amber-500/[0.06] px-4 py-3 text-xs leading-relaxed text-amber-100/80">
+            <p className="rounded-xl border border-amber-500/20 bg-amber-500/6 px-4 py-3 text-lg leading-relaxed text-amber-100/80">
               <span className="font-semibold text-amber-200">For fun only.</span> Points are for
               bragging rights — not money, vouchers, or prizes.
             </p>
+            <p className="text-sm text-slate-500">
+              Each day uses a random mix from the question bank (same quiz for everyone on that
+              Lagos date).
+            </p>
             <p className="text-xs text-slate-600">
-              One completed game per day on this device (stored in your browser). Clear site data
-              to reset — real limits need sign-in on a server.
+              One completed game per day on this device (browser storage).
             </p>
           </div>
-          <div className="mt-8 flex flex-wrap items-end justify-between gap-4 border-t border-white/[0.06] pt-8">
+          <div className="mt-8 flex flex-wrap items-end justify-between gap-4 border-t border-white/6 pt-8">
             <div>
               <p className="text-[10px] font-medium uppercase tracking-widest text-slate-500">
-                Quiz date (Lagos)
+                Quiz date
               </p>
               <p className="mt-1 font-mono text-sm text-slate-300">{quiz.date}</p>
             </div>
@@ -445,25 +395,25 @@ export function DailyTrivia({ initialDateParam }: Props) {
               <p className="text-[10px] font-medium uppercase tracking-widest text-slate-500">
                 Levels
               </p>
-              <p className="mt-1 font-[family-name:var(--font-stage)] text-2xl font-bold text-white">
+              <p className="mt-1 font-(family-name:--font-stage) text-2xl font-bold text-white">
                 {total}
               </p>
             </div>
           </div>
         </div>
 
-        <div className="flex flex-col justify-center rounded-[2rem] border border-amber-500/20 bg-gradient-to-b from-amber-950/40 to-slate-950 p-8 text-center">
+        <div className="flex flex-col justify-center rounded-4xl border border-amber-500/20 bg-linear-to-b from-amber-950/40 to-slate-950 p-8 text-center">
           <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-amber-400/80">
             Top of the ladder
           </p>
-          <p className="mt-3 font-[family-name:var(--font-stage)] text-4xl font-bold text-amber-200">
+          <p className="mt-3 font-(family-name:--font-stage) text-4xl font-bold text-amber-200">
             {formatPoints(topPts)}
           </p>
           <p className="mt-2 text-xs text-slate-500">today’s max (in-game points)</p>
           <button
             type="button"
             onClick={() => setStarted(true)}
-            className="mt-8 w-full rounded-full bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600 py-4 text-sm font-bold uppercase tracking-widest text-slate-950 shadow-lg shadow-amber-900/30 transition hover:brightness-105"
+            className="mt-8 w-full rounded-full bg-linear-to-r from-amber-400 via-amber-500 to-amber-600 py-4 text-sm font-bold uppercase tracking-widest text-slate-950 shadow-lg shadow-amber-900/30 transition hover:brightness-105"
           >
             Start
           </button>
@@ -483,17 +433,17 @@ export function DailyTrivia({ initialDateParam }: Props) {
 
   return (
     <>
-    <div className="relative overflow-hidden rounded-[2rem] border border-white/[0.08] bg-gradient-to-b from-slate-900/90 via-[#070b14] to-black shadow-[0_0_0_1px_rgba(251,191,36,0.06),0_32px_64px_-24px_rgba(0,0,0,0.7)]">
+    <div className="relative overflow-hidden rounded-4xl border border-white/8 bg-linear-to-b from-slate-900/90 via-[#070b14] to-black shadow-[0_0_0_1px_rgba(251,191,36,0.06),0_32px_64px_-24px_rgba(0,0,0,0.7)]">
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-amber-400/40 to-transparent"
+        className="pointer-events-none absolute inset-x-0 top-0 h-px bg-linear-to-r from-transparent via-amber-400/40 to-transparent"
       />
 
       <div className="grid gap-0 lg:grid-cols-[1fr_minmax(0,240px)]">
         <div className="space-y-6 p-6 sm:p-8 lg:p-10">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex flex-wrap items-center gap-3">
-              <span className="inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-4 py-1.5 font-[family-name:var(--font-stage)] text-sm font-semibold uppercase tracking-wide text-amber-200">
+              <span className="inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-4 py-1.5 font-(family-name:--font-stage) text-sm font-semibold uppercase tracking-wide text-amber-200">
                 <span className="text-amber-400/80">Q</span>
                 {q.level}
                 <span className="text-amber-500/50">/</span>
@@ -505,15 +455,15 @@ export function DailyTrivia({ initialDateParam }: Props) {
             </div>
             {!showReveal && (
               <div
-                className="flex min-w-[120px] flex-col items-end gap-1"
+                className="flex min-w-30 flex-col items-end gap-1"
                 role="timer"
                 aria-live="polite"
                 aria-label={`${secondsLeft} seconds left`}
               >
-                <span className="font-[family-name:var(--font-stage)] text-2xl font-bold tabular-nums text-amber-300">
+                <span className="font-(family-name:--font-stage) text-2xl font-bold tabular-nums text-amber-300">
                   {secondsLeft}s
                 </span>
-                <div className="h-1.5 w-full max-w-[120px] overflow-hidden rounded-full bg-white/10">
+                <div className="h-1.5 w-full max-w-30 overflow-hidden rounded-full bg-white/10">
                   <div
                     className={`h-full rounded-full transition-[width] duration-200 ${
                       secondsLeft <= 10 ? "bg-red-500" : "bg-amber-400"
@@ -525,41 +475,38 @@ export function DailyTrivia({ initialDateParam }: Props) {
             )}
           </div>
 
-          <p className="font-[family-name:var(--font-stage)] text-[1.35rem] font-medium leading-snug text-white sm:text-2xl sm:leading-snug">
+          <p className="font-(family-name:--font-stage) text-[1.35rem] font-medium leading-snug text-white sm:text-2xl sm:leading-snug">
             {q.text}
           </p>
-
           {!showReveal && (
             <div className="flex flex-wrap gap-3">
               <button
                 type="button"
                 disabled={fiftyUsed}
-                onClick={requestFiftyFifty}
-                className="flex min-h-[44px] items-center gap-2 rounded-xl border border-amber-500/35 bg-gradient-to-b from-amber-950/60 to-slate-950/80 px-5 py-2.5 text-xs font-bold uppercase tracking-wider text-amber-100 transition enabled:hover:border-amber-400/50 enabled:hover:bg-amber-950/80 disabled:cursor-not-allowed disabled:opacity-35"
+                onClick={() => void applyFiftyFifty()}
+                className="flex min-h-11 items-center gap-2 rounded-xl border border-amber-500/35 bg-linear-to-b from-amber-950/60 to-slate-950/80 px-5 py-2.5 text-xs font-bold uppercase tracking-wider text-amber-100 transition enabled:hover:border-amber-400/50 enabled:hover:bg-amber-950/80 disabled:cursor-not-allowed disabled:opacity-35"
               >
                 <span className="text-base leading-none">50:50</span>
                 <span className="text-[10px] font-normal normal-case tracking-normal text-amber-200/60">
-                  {skipLifelinePayment ? "Remove two" : `${formatNgn(feeFifty)} · Remove two`}
+                  Remove two wrong answers
                 </span>
               </button>
               <button
                 type="button"
                 disabled={audienceUsed}
-                onClick={requestAudiencePoll}
-                className="flex min-h-[44px] items-center gap-2 rounded-xl border border-sky-500/35 bg-gradient-to-b from-sky-950/50 to-slate-950/80 px-5 py-2.5 text-xs font-bold uppercase tracking-wider text-sky-100 transition enabled:hover:border-sky-400/50 enabled:hover:bg-sky-950/70 disabled:cursor-not-allowed disabled:opacity-35"
+                onClick={() => void applyAudiencePoll()}
+                className="flex min-h-11 items-center gap-2 rounded-xl border border-sky-500/35 bg-linear-to-b from-sky-950/50 to-slate-950/80 px-5 py-2.5 text-xs font-bold uppercase tracking-wider text-sky-100 transition enabled:hover:border-sky-400/50 enabled:hover:bg-sky-950/70 disabled:cursor-not-allowed disabled:opacity-35"
               >
                 <span className="text-base leading-none">Poll</span>
                 <span className="text-[10px] font-normal normal-case tracking-normal text-sky-200/60">
-                  {skipLifelinePayment
-                    ? "Ask the audience"
-                    : `${formatNgn(feeAudience)} · Ask the audience`}
+                  Ask the audience
                 </span>
               </button>
             </div>
           )}
 
           {audiencePct && !showReveal && (
-            <div className="rounded-2xl border border-white/[0.06] bg-black/30 p-5">
+            <div className="rounded-2xl border border-white/6 bg-black/30 p-5">
               <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
                 Audience
               </p>
@@ -574,7 +521,7 @@ export function DailyTrivia({ initialDateParam }: Props) {
                       </span>
                       <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-white/5">
                         <div
-                          className="h-full rounded-full bg-gradient-to-r from-sky-600 to-sky-400"
+                          className="h-full rounded-full bg-linear-to-r from-sky-600 to-sky-400"
                           style={{ width: `${pct}%` }}
                         />
                       </div>
@@ -622,13 +569,13 @@ export function DailyTrivia({ initialDateParam }: Props) {
                   className={`group relative flex w-full items-stretch gap-0 overflow-hidden rounded-2xl border text-left transition ${ring}`}
                 >
                   <span
-                    className={`flex w-11 shrink-0 items-center justify-center font-[family-name:var(--font-stage)] text-lg font-bold ${
+                    className={`flex w-11 shrink-0 items-center justify-center font-(family-name:--font-stage) text-lg font-bold ${
                       picked && !showReveal ? "text-amber-300" : "text-slate-500"
                     }`}
                   >
                     {String.fromCharCode(65 + idx)}
                   </span>
-                  <span className="flex flex-1 items-center border-l border-white/[0.06] py-4 pr-4 text-[15px] leading-snug text-slate-100">
+                  <span className="flex flex-1 items-center border-l border-white/6 py-4 pr-4 text-[15px] leading-snug text-slate-100">
                     {opt}
                   </span>
                 </button>
@@ -657,7 +604,7 @@ export function DailyTrivia({ initialDateParam }: Props) {
                   <button
                     type="button"
                     onClick={bankPointsAndExit}
-                    className="order-2 rounded-full border border-white/12 py-3.5 text-sm font-medium text-slate-300 transition hover:border-white/20 hover:bg-white/[0.04] sm:order-1 sm:min-w-[200px]"
+                    className="order-2 rounded-full border border-white/12 py-3.5 text-sm font-medium text-slate-300 transition hover:border-white/20 hover:bg-white/4 sm:order-1 sm:min-w-50"
                   >
                     Bank {formatPoints(bankedPoints)} &amp; exit
                   </button>
@@ -666,7 +613,7 @@ export function DailyTrivia({ initialDateParam }: Props) {
                   type="button"
                   disabled={selected === null || submitting}
                   onClick={() => void submitAnswer()}
-                  className="order-1 flex-1 rounded-full bg-gradient-to-r from-emerald-600 to-emerald-500 py-4 text-sm font-bold uppercase tracking-widest text-white shadow-lg shadow-emerald-900/30 transition enabled:hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 sm:order-2"
+                  className="order-1 flex-1 rounded-full bg-linear-to-r from-emerald-600 to-emerald-500 py-4 text-sm font-bold uppercase tracking-widest text-white shadow-lg shadow-emerald-900/30 transition enabled:hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 sm:order-2"
                 >
                   {submitting ? "Checking…" : "Final answer"}
                 </button>
@@ -676,7 +623,7 @@ export function DailyTrivia({ initialDateParam }: Props) {
               <button
                 type="button"
                 onClick={nextQuestion}
-                className="w-full rounded-full bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600 py-4 text-sm font-bold uppercase tracking-widest text-slate-950 shadow-lg shadow-amber-900/25"
+                className="w-full rounded-full bg-linear-to-r from-amber-400 via-amber-500 to-amber-600 py-4 text-sm font-bold uppercase tracking-widest text-slate-950 shadow-lg shadow-amber-900/25"
               >
                 Next question
               </button>
@@ -687,7 +634,7 @@ export function DailyTrivia({ initialDateParam }: Props) {
                 onClick={() =>
                   setGameEnd({ kind: "won", points: lastAnswer.securedPoints })
                 }
-                className="w-full rounded-full bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600 py-4 text-sm font-bold uppercase tracking-widest text-slate-950 shadow-lg shadow-amber-900/25"
+                className="w-full rounded-full bg-linear-to-r from-amber-400 via-amber-500 to-amber-600 py-4 text-sm font-bold uppercase tracking-widest text-slate-950 shadow-lg shadow-amber-900/25"
               >
                 See final score
               </button>
@@ -713,9 +660,9 @@ export function DailyTrivia({ initialDateParam }: Props) {
           </div>
         </div>
 
-        <aside className="flex flex-col border-t border-white/[0.06] bg-gradient-to-b from-slate-900/50 to-black/60 lg:border-l lg:border-t-0">
-          <div className="border-b border-white/[0.06] px-5 py-4 text-center">
-            <p className="font-[family-name:var(--font-stage)] text-[11px] font-bold uppercase tracking-[0.35em] text-amber-400/90">
+        <aside className="flex flex-col border-t border-white/6 bg-linear-to-b from-slate-900/50 to-black/60 lg:border-l lg:border-t-0">
+          <div className="border-b border-white/6 px-5 py-4 text-center">
+            <p className="font-(family-name:--font-stage) text-[11px] font-bold uppercase tracking-[0.35em] text-amber-400/90">
               Points ladder
             </p>
             <p className="mt-1 text-[10px] text-slate-600">In-game only</p>
@@ -735,16 +682,16 @@ export function DailyTrivia({ initialDateParam }: Props) {
                   key={level}
                   className={`flex items-center justify-between rounded-xl px-3 py-2.5 text-xs transition ${
                     isCurrent
-                      ? "bg-gradient-to-r from-amber-500/25 to-amber-600/10 font-semibold text-white ring-1 ring-amber-400/40"
+                      ? "bg-linear-to-r from-amber-500/25 to-amber-600/10 font-semibold text-white ring-1 ring-amber-400/40"
                       : isDone
                         ? "bg-emerald-500/[0.07] text-emerald-100/90"
-                        : "bg-white/[0.02] text-slate-500"
+                        : "bg-white/2 text-slate-500"
                   }`}
                 >
                   <span className="flex items-center gap-2">
                     <span className="w-4 tabular-nums opacity-70">{level}</span>
                     {isCheckpoint && (
-                      <span className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-200/90">
+                      <span className="rounded bg-white/6 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-200/90">
                         Save
                       </span>
                     )}
@@ -759,16 +706,6 @@ export function DailyTrivia({ initialDateParam }: Props) {
         </aside>
       </div>
     </div>
-    <LifelinePaywall
-      open={paywallKind !== null}
-      kind={paywallKind}
-      amountNgn={paywallKind ? getLifelineFeeNgn(paywallKind) : 0}
-      processing={paywallProcessing}
-      onCancel={() => {
-        if (!paywallProcessing) setPaywallKind(null);
-      }}
-      onConfirm={() => void confirmPaywall()}
-    />
     </>
   );
 }

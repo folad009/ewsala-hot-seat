@@ -1,5 +1,4 @@
 import { QUESTION_BANK } from "@/data/questions";
-import { getDifficulty } from "@/lib/question-difficulty";
 import {
   getCheckpointLevels1Based,
   getPointsLadder,
@@ -104,11 +103,8 @@ export function getDailyQuizForDate(date: string): DailyQuiz {
   // If bank is too small (shouldn’t happen), trim
   const finalQs = picked.slice(0, count);
 
-  // Easiest first → hardest last (Millionaire-style ramp)
-  finalQs.sort((a, b) => {
-    const d = getDifficulty(a) - getDifficulty(b);
-    return d !== 0 ? d : a.id.localeCompare(b.id);
-  });
+  // Random order for this calendar day (same for everyone; reshuffles each new day)
+  shuffleInPlace(finalQs, mulberry32(hashSeed(`${date}|order`)));
 
   const pointsLadder = getPointsLadder(finalQs.length);
   const checkpointLevels = getCheckpointLevels1Based(finalQs.length);
