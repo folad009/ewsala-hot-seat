@@ -12,6 +12,9 @@ const CATEGORIES: CategoryId[] = [
   "afrobeats",
   "current_affairs",
 ];
+const TOTAL_LEVELS = 5;
+const QUESTIONS_PER_LEVEL = 10;
+const TOTAL_QUESTIONS_PER_SESSION = TOTAL_LEVELS * QUESTIONS_PER_LEVEL;
 
 /** Deterministic PRNG (Mulberry32). */
 function mulberry32(seed: number): () => number {
@@ -31,12 +34,6 @@ function hashSeed(date: string): number {
     h = Math.imul(h, 16777619);
   }
   return h >>> 0;
-}
-
-/** Question count between 5 and 10 inclusive, stable per day. */
-export function dailyQuestionCount(date: string): number {
-  const rnd = mulberry32(hashSeed(`${date}|count`))();
-  return 5 + Math.floor(rnd * 6);
 }
 
 function shuffleInPlace<T>(arr: T[], rand: () => number): void {
@@ -68,9 +65,10 @@ function toPublicWithLevel(q: Question, level: number): PublicQuestionWithLevel 
 /**
  * Picks a balanced daily set: every category represented first, then fills to N.
  */
-export function getDailyQuizForDate(date: string): DailyQuiz {
-  const count = dailyQuestionCount(date);
-  const rand = mulberry32(hashSeed(date));
+export function getDailyQuizForDate(date: string, sessionKey?: string): DailyQuiz {
+  const resolvedSessionKey = sessionKey?.trim() || "default";
+  const count = TOTAL_QUESTIONS_PER_SESSION;
+  const rand = mulberry32(hashSeed(`${date}|${resolvedSessionKey}`));
   const byCat = groupByCategory();
 
   for (const c of CATEGORIES) {
@@ -103,14 +101,17 @@ export function getDailyQuizForDate(date: string): DailyQuiz {
   // If bank is too small (shouldn’t happen), trim
   const finalQs = picked.slice(0, count);
 
-  // Random order for this calendar day (same for everyone; reshuffles each new day)
-  shuffleInPlace(finalQs, mulberry32(hashSeed(`${date}|order`)));
+  // Random order per play session.
+  shuffleInPlace(finalQs, mulberry32(hashSeed(`${date}|${resolvedSessionKey}|order`)));
 
   const pointsLadder = getPointsLadder(finalQs.length);
   const checkpointLevels = getCheckpointLevels1Based(finalQs.length);
 
   return {
     date,
+    sessionKey: resolvedSessionKey,
+    totalLevels: TOTAL_LEVELS,
+    questionsPerLevel: QUESTIONS_PER_LEVEL,
     questionCount: finalQs.length,
     pointsLadder,
     checkpointLevels,

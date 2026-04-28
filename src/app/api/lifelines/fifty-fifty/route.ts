@@ -1,4 +1,4 @@
-import { getDailyQuizForDate, getQuestionById } from "@/lib/daily";
+import { getQuestionById } from "@/lib/daily";
 import { isValidYyyyMmDd } from "@/lib/date-lagos";
 import { hashString, mulberry32 } from "@/lib/prng";
 import { NextResponse } from "next/server";
@@ -21,11 +21,6 @@ export async function POST(request: Request) {
   }
   if (typeof questionId !== "string") {
     return NextResponse.json({ error: "Invalid questionId" }, { status: 400 });
-  }
-
-  const quiz = getDailyQuizForDate(date);
-  if (!quiz.questions.some((q) => q.id === questionId)) {
-    return NextResponse.json({ error: "Unknown question" }, { status: 400 });
   }
 
   const full = getQuestionById(questionId);

@@ -4,8 +4,17 @@ export const FULL_POINTS_LADDER = [
 ] as const;
 
 export function getPointsLadder(questionCount: number): number[] {
-  const n = Math.min(Math.max(questionCount, 1), FULL_POINTS_LADDER.length);
-  return FULL_POINTS_LADDER.slice(0, n);
+  const n = Math.max(questionCount, 1);
+  if (n <= FULL_POINTS_LADDER.length) {
+    return FULL_POINTS_LADDER.slice(0, n);
+  }
+  const ladder: number[] = [...FULL_POINTS_LADDER];
+  while (ladder.length < n) {
+    const prev = ladder[ladder.length - 1] ?? FULL_POINTS_LADDER[FULL_POINTS_LADDER.length - 1];
+    const next = Math.round((prev * 1.22) / 50) * 50;
+    ladder.push(next);
+  }
+  return ladder;
 }
 
 /**
@@ -13,6 +22,7 @@ export function getPointsLadder(questionCount: number): number[] {
  * (after answering that question correctly).
  */
 export function getCheckpointLevels1Based(questionCount: number): number[] {
+  if (questionCount >= 50) return [10, 20, 30, 40, 50];
   if (questionCount >= 10) return [5, 10];
   if (questionCount >= 5) return [5];
   if (questionCount >= 3) return [Math.floor(questionCount / 2)];

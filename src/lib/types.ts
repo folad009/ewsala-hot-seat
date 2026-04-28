@@ -19,6 +19,9 @@ export type PublicQuestionWithLevel = PublicQuestion & { level: number };
 
 export type DailyQuiz = {
   date: string;
+  sessionKey: string;
+  totalLevels: number;
+  questionsPerLevel: number;
   questionCount: number;
   /** Game points per level (index 0 = level 1) — for fun only, not money. */
   pointsLadder: number[];
@@ -29,6 +32,7 @@ export type DailyQuiz = {
 
 export type SubmitPayload = {
   date: string;
+  sessionKey?: string;
   answers: Record<string, number>;
 };
 

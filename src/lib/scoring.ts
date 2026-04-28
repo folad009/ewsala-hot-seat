@@ -2,7 +2,7 @@ import { getDailyQuizForDate, getQuestionById } from "@/lib/daily";
 import type { SubmitPayload, SubmitResult } from "@/lib/types";
 
 export function scoreSubmission(payload: SubmitPayload): SubmitResult | null {
-  const quiz = getDailyQuizForDate(payload.date);
+  const quiz = getDailyQuizForDate(payload.date, payload.sessionKey);
   const ids = new Set(quiz.questions.map((q) => q.id));
 
   let correct = 0;
@@ -42,7 +42,7 @@ export function scoreSubmission(payload: SubmitPayload): SubmitResult | null {
 
 /** Reject if client sends answers for questions not in today’s quiz. */
 export function validateAnswerKeys(payload: SubmitPayload): boolean {
-  const quiz = getDailyQuizForDate(payload.date);
+  const quiz = getDailyQuizForDate(payload.date, payload.sessionKey);
   const allowed = new Set(quiz.questions.map((q) => q.id));
   for (const key of Object.keys(payload.answers)) {
     if (!allowed.has(key)) return false;

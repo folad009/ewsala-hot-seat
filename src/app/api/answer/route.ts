@@ -1,7 +1,9 @@
 import { getDailyQuizForDate, getQuestionById } from "@/lib/daily";
+import { mtnMessagingGateway, mtnReportingGateway } from "@/lib/mtn-integration";
 import { isValidYyyyMmDd } from "@/lib/date-lagos";
-import { pointsOnWrong } from "@/lib/ladder";
 import { NextResponse } from "next/server";
+
+const POINTS_PER_QUESTION = 10;
 
 export async function POST(request: Request) {
   let body: unknown;
@@ -15,12 +17,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
 
-  const { date, questionId, selectedIndex, timedOut } = body as {
+  const { date, questionId, selectedIndex, timedOut, channel, msisdn, sessionKey } = body as {
     date?: unknown;
     questionId?: unknown;
     selectedIndex?: unknown;
     timedOut?: unknown;
+    channel?: unknown;
+    msisdn?: unknown;
+    sessionKey?: unknown;
   };
+  const resolvedChannel = channel === "sms" || channel === "web" ? channel : "web";
+  const resolvedMsisdn = typeof msisdn === "string" ? msisdn.trim() : "";
+
 
   if (typeof date !== "string" || !isValidYyyyMmDd(date)) {
     return NextResponse.json({ error: "Invalid date" }, { status: 400 });
@@ -47,7 +55,10 @@ export async function POST(request: Request) {
     );
   }
 
-  const quiz = getDailyQuizForDate(date);
+  const quiz = getDailyQuizForDate(
+    date,
+    typeof sessionKey === "string" ? sessionKey : undefined,
+  );
   const slot = quiz.questions.find((q) => q.id === questionId);
   const full = getQuestionById(questionId);
 
@@ -57,49 +68,78 @@ export async function POST(request: Request) {
 
   if (isTimeout) {
     const level = slot.level;
-    const ladder = quiz.pointsLadder;
     const completedCorrect = level - 1;
-    const pointsAfterWrong = pointsOnWrong(
-      completedCorrect,
-      ladder,
-      quiz.checkpointLevels,
-    );
-    return NextResponse.json({
+    const pointsAfterWrong = completedCorrect * POINTS_PER_QUESTION;
+    const payload = {
       correct: false,
       correctIndex: full.correctIndex,
       level,
       pointsAfterWrong,
       timedOut: true,
+    };
+    await mtnReportingGateway.publishActivity({
+      eventType: "answer_submitted",
+      channel: resolvedChannel,
+      msisdn: resolvedMsisdn || null,
+      questionId,
+      correct: false,
+      timedOut: true,
+      date,
     });
+    if (resolvedChannel === "sms" && resolvedMsisdn) {
+      await mtnMessagingGateway.sendAnswerFeedback(resolvedMsisdn);
+    }
+    return NextResponse.json(payload);
   }
 
   const correct = (selectedIndex as number) === full.correctIndex;
   const level = slot.level;
-  const ladder = quiz.pointsLadder;
 
   if (correct) {
-    const securedPoints = ladder[level - 1];
+    const securedPoints = level * POINTS_PER_QUESTION;
     const isLast = level === quiz.questionCount;
-    return NextResponse.json({
+    const payload = {
       correct: true,
       correctIndex: full.correctIndex,
       level,
       securedPoints,
       isLast,
+    };
+    await mtnReportingGateway.publishActivity({
+      eventType: "answer_submitted",
+      channel: resolvedChannel,
+      msisdn: resolvedMsisdn || null,
+      questionId,
+      correct: true,
+      timedOut: false,
+      date,
     });
+    if (resolvedChannel === "sms" && resolvedMsisdn) {
+      await mtnMessagingGateway.sendAnswerFeedback(resolvedMsisdn);
+    }
+    return NextResponse.json(payload);
   }
 
   const completedCorrect = level - 1;
-  const pointsAfterWrong = pointsOnWrong(
-    completedCorrect,
-    ladder,
-    quiz.checkpointLevels,
-  );
+  const pointsAfterWrong = completedCorrect * POINTS_PER_QUESTION;
 
-  return NextResponse.json({
+  const payload = {
     correct: false,
     correctIndex: full.correctIndex,
     level,
     pointsAfterWrong,
+  };
+  await mtnReportingGateway.publishActivity({
+    eventType: "answer_submitted",
+    channel: resolvedChannel,
+    msisdn: resolvedMsisdn || null,
+    questionId,
+    correct: false,
+    timedOut: false,
+    date,
   });
+  if (resolvedChannel === "sms" && resolvedMsisdn) {
+    await mtnMessagingGateway.sendAnswerFeedback(resolvedMsisdn);
+  }
+  return NextResponse.json(payload);
 }
