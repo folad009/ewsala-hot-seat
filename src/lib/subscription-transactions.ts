@@ -7,7 +7,8 @@ type TxEvent =
   | "renewed"
   | "opt_out"
   | "payment_verified"
-  | "trial_session";
+  | "trial_session"
+  | "game_completed";
 type TxProvider = "network" | "paystack";
 type TxChannel = "sms" | "web";
 
@@ -99,7 +100,13 @@ export async function getSubscriptionStatus(msisdn: string): Promise<{
   lastEventAt: string | null;
 }> {
   const latest = await subscriptionTransactionDelegate().findFirst({
-    where: { msisdn, status: "success" },
+    where: {
+      msisdn,
+      status: "success",
+      eventType: {
+        in: ["activated", "renewed", "opt_out"],
+      },
+    },
     orderBy: { occurredAt: "desc" },
   });
 
@@ -174,4 +181,80 @@ export async function hasSuccessfulOptOut(msisdn: string): Promise<boolean> {
     orderBy: { occurredAt: "desc" },
   });
   return !!latestOptOut;
+}
+
+export async function hasCompletedGameSession(
+  msisdn: string,
+  reference: string,
+): Promise<boolean> {
+  const existing = await subscriptionTransactionDelegate().findMany({
+    where: {
+      msisdn,
+      eventType: "game_completed",
+      status: "success",
+      reference,
+    },
+    take: 1,
+  });
+  return existing.length > 0;
+}
+
+export async function getLeaderboardByPeriod(
+  period: "weekly" | "monthly",
+  limit = 10,
+  currentMsisdn?: string,
+): Promise<{
+  rows: Array<{ msisdn: string; points: number; rank: number }>;
+  me: { msisdn: string; points: number; rank: number } | null;
+  totalPlayers: number;
+}> {
+  const now = new Date();
+  const start = new Date(now);
+  if (period === "weekly") {
+    const day = start.getUTCDay();
+    const shift = day === 0 ? 6 : day - 1;
+    start.setUTCDate(start.getUTCDate() - shift);
+  } else {
+    start.setUTCDate(1);
+  }
+  start.setUTCHours(0, 0, 0, 0);
+
+  const events = await subscriptionTransactionDelegate().findMany({
+    where: {
+      eventType: "game_completed",
+      status: "success",
+      occurredAt: { gte: start, lte: now },
+    },
+    orderBy: { occurredAt: "desc" },
+  });
+
+  const byMsisdn = new Map<string, number>();
+  for (const row of events) {
+    const points =
+      row.metadata &&
+      typeof row.metadata === "object" &&
+      "points" in row.metadata &&
+      typeof (row.metadata as { points?: unknown }).points === "number"
+        ? (row.metadata as { points: number }).points
+        : 0;
+    byMsisdn.set(row.msisdn, (byMsisdn.get(row.msisdn) ?? 0) + points);
+  }
+
+  const ranked = [...byMsisdn.entries()]
+    .map(([msisdn, points]) => ({ msisdn, points }))
+    .sort((a, b) => b.points - a.points)
+    .map((entry, idx) => ({
+      ...entry,
+      rank: idx + 1,
+    }));
+
+  const rows = ranked.slice(0, Math.min(Math.max(limit, 1), 100));
+  const me = currentMsisdn
+    ? ranked.find((entry) => entry.msisdn === currentMsisdn) ?? null
+    : null;
+  return {
+    rows,
+    me,
+    totalPlayers: ranked.length,
+  };
 }

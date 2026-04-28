@@ -18,6 +18,7 @@ import {
   pickWinCongratulations,
   WALK_SUB,
 } from "@/lib/game-end-messages";
+import Link from "next/link";
 import { SECONDS_PER_QUESTION } from "@/lib/question-timer";
 import type { CategoryId, DailyQuiz } from "@/lib/types";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -28,6 +29,33 @@ type Props = {
 
 function formatPoints(n: number): string {
   return `${n.toLocaleString("en-NG")} pts`;
+}
+
+function maskMsisdn(msisdn: string): string {
+  if (msisdn.length < 8) return msisdn;
+  return `${msisdn.slice(0, 4)}•••${msisdn.slice(-4)}`;
+}
+
+type DifficultyBand = "easy" | "medium" | "hard";
+
+const POINTS_PER_QUESTION = 10;
+const LEVELS_PER_STAGE = 50;
+const SUBSCRIPTION_COIN_GRANT = 1000;
+const TRIAL_COIN_GRANT = 300;
+
+function getDifficultyForStageQuestion(
+  stageQuestionNumber: number,
+  stageQuestionCount: number,
+): { band: DifficultyBand; label: string; coinCost: number } {
+  const easyEnd = Math.ceil(stageQuestionCount / 3);
+  const mediumEnd = Math.ceil((stageQuestionCount * 2) / 3);
+  if (stageQuestionNumber <= easyEnd) {
+    return { band: "easy", label: "Easy", coinCost: 10 };
+  }
+  if (stageQuestionNumber <= mediumEnd) {
+    return { band: "medium", label: "Medium", coinCost: 15 };
+  }
+  return { band: "hard", label: "Hard", coinCost: 20 };
 }
 
 type AnswerOk =
@@ -80,6 +108,19 @@ type TrialStatusResponse = {
   channel: "sms" | "web";
 };
 
+type LeaderboardRow = {
+  msisdn: string;
+  points: number;
+  rank: number;
+};
+
+type LeaderboardResponse = {
+  period: "weekly" | "monthly";
+  rows: LeaderboardRow[];
+  me: LeaderboardRow | null;
+  totalPlayers: number;
+};
+
 type PersistedPlaySession = {
   date: string;
   sessionKey: string;
@@ -88,8 +129,6 @@ type PersistedPlaySession = {
 };
 
 const PLAY_SESSION_STORAGE_KEY = "eswala-trivia-play-session";
-const LEVELS_PER_STAGE = 50;
-const POINTS_PER_QUESTION = 10;
 
 function createSessionKey(): string {
   return `sess_${Date.now()}_${Math.floor(Math.random() * 1_000_000)}`;
@@ -129,7 +168,12 @@ function toDateOnly(iso: string | null): string | null {
   if (!iso) return null;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
-  return d.toISOString().slice(0, 10);
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Lagos",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
 }
 
 function addOneDay(dateOnly: string | null): string | null {
@@ -201,12 +245,21 @@ export function DailyTrivia({ initialDateParam }: Props) {
   const [playSessionKey, setPlaySessionKey] = useState("");
   const [resumeIndex, setResumeIndex] = useState<number | null>(null);
   const [pendingStageIndex, setPendingStageIndex] = useState<number | null>(0);
+  const [pendingDifficultyIntro, setPendingDifficultyIntro] =
+    useState<DifficultyBand | null>("easy");
+  const [currentCoins, setCurrentCoins] = useState(0);
+  const [currentScore, setCurrentScore] = useState(0);
+  const [leaderboardPeriod, setLeaderboardPeriod] = useState<"weekly" | "monthly">("weekly");
+  const [leaderboardRows, setLeaderboardRows] = useState<LeaderboardRow[]>([]);
+  const [playerRank, setPlayerRank] = useState<number | null>(null);
+  const [leaderboardLoading, setLeaderboardLoading] = useState(false);
 
   const quizRef = useRef(quiz);
   const qRef = useRef(quiz?.questions[0]);
   const answerLockRef = useRef(false);
   const timeoutFireRef = useRef(false);
   const trialFailureRecordedRef = useRef(false);
+  const leaderboardSubmittedRef = useRef(false);
   quizRef.current = quiz;
   qRef.current = quiz?.questions[currentIndex];
 
@@ -440,7 +493,11 @@ export function DailyTrivia({ initialDateParam }: Props) {
     setSecondsLeft(SECONDS_PER_QUESTION);
     setIsTrialSession(false);
     trialFailureRecordedRef.current = false;
+    leaderboardSubmittedRef.current = false;
     setPendingStageIndex(0);
+    setPendingDifficultyIntro("easy");
+    setCurrentScore(0);
+    setCurrentCoins(0);
     try {
       const res = await fetch(dailyUrl);
       if (!res.ok) throw new Error("Could not load quiz");
@@ -462,11 +519,50 @@ export function DailyTrivia({ initialDateParam }: Props) {
   const totalLevels = quiz?.totalLevels ?? 0;
   const totalStages = Math.max(Math.ceil(total / LEVELS_PER_STAGE), 1);
   const currentStageIndex = Math.floor(currentIndex / LEVELS_PER_STAGE);
+  const stageStartIndex = currentStageIndex * LEVELS_PER_STAGE;
+  const questionsInCurrentStage = Math.min(
+    LEVELS_PER_STAGE,
+    Math.max(total - stageStartIndex, 0),
+  );
+  const currentStageQuestionNumber = currentIndex - stageStartIndex + 1;
+  const currentDifficulty = getDifficultyForStageQuestion(
+    Math.max(currentStageQuestionNumber, 1),
+    Math.max(questionsInCurrentStage, 1),
+  );
 
   const bankedPoints = useMemo(() => {
     if (!quiz) return 0;
     return currentIndex * POINTS_PER_QUESTION;
   }, [quiz, currentIndex]);
+
+  const fetchLeaderboard = useCallback(async () => {
+    if (!authenticated) {
+      setLeaderboardRows([]);
+      setPlayerRank(null);
+      return;
+    }
+    setLeaderboardLoading(true);
+    try {
+      const res = await fetch(`/api/leaderboard?period=${leaderboardPeriod}&limit=5`);
+      if (!res.ok) {
+        setLeaderboardRows([]);
+        setPlayerRank(null);
+        return;
+      }
+      const data = (await res.json()) as LeaderboardResponse;
+      setLeaderboardRows(data.rows ?? []);
+      setPlayerRank(data.me?.rank ?? null);
+    } catch {
+      setLeaderboardRows([]);
+      setPlayerRank(null);
+    } finally {
+      setLeaderboardLoading(false);
+    }
+  }, [authenticated, leaderboardPeriod]);
+
+  useEffect(() => {
+    void fetchLeaderboard();
+  }, [fetchLeaderboard]);
 
   useEffect(() => {
     answerLockRef.current = false;
@@ -482,6 +578,10 @@ export function DailyTrivia({ initialDateParam }: Props) {
     const qNow = qRef.current;
     const quizNow = quizRef.current;
     if (!quizNow || !qNow || answerLockRef.current) return;
+    if (currentCoins < currentDifficulty.coinCost) {
+      setError("Not enough coins. Subscribe/renew to continue playing.");
+      return;
+    }
     answerLockRef.current = true;
     setSubmitting(true);
     setError(null);
@@ -505,6 +605,10 @@ export function DailyTrivia({ initialDateParam }: Props) {
         setSubmitting(false);
         return;
       }
+      setCurrentCoins((prev) => Math.max(prev - currentDifficulty.coinCost, 0));
+      if ("pointsAfterWrong" in data && typeof data.pointsAfterWrong === "number") {
+        setCurrentScore(data.pointsAfterWrong);
+      }
       setLastAnswer(data as AnswerOk);
     } catch {
       answerLockRef.current = false;
@@ -512,7 +616,7 @@ export function DailyTrivia({ initialDateParam }: Props) {
     } finally {
       setSubmitting(false);
     }
-  }, [subChannel, subscriberMsisdn]);
+  }, [subChannel, subscriberMsisdn, currentDifficulty.coinCost, currentCoins]);
 
   const recordTrialFailure = useCallback(async (reason: "wrong" | "timeout") => {
     if (!isTrialSession || trialFailureRecordedRef.current) return;
@@ -555,8 +659,30 @@ export function DailyTrivia({ initialDateParam }: Props) {
     void recordTrialFailure(reason);
   }, [lastAnswer, recordTrialFailure]);
 
+  useEffect(() => {
+    if (!gameEnd || !quiz || !authenticated || leaderboardSubmittedRef.current) return;
+    leaderboardSubmittedRef.current = true;
+    void fetch("/api/leaderboard/submit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        points: gameEnd.points,
+        date: quiz.date,
+        sessionKey: quiz.sessionKey,
+        channel: subChannel,
+        outcome: gameEnd.kind,
+      }),
+    })
+      .then(() => fetchLeaderboard())
+      .catch(() => {});
+  }, [gameEnd, quiz, authenticated, subChannel, fetchLeaderboard]);
+
   async function submitAnswer() {
     if (!quiz || !q || selected === null || answerLockRef.current) return;
+    if (currentCoins < currentDifficulty.coinCost) {
+      setError("Not enough coins. Subscribe/renew to continue playing.");
+      return;
+    }
     answerLockRef.current = true;
     setSubmitting(true);
     setError(null);
@@ -579,6 +705,12 @@ export function DailyTrivia({ initialDateParam }: Props) {
         setError(typeof data.error === "string" ? data.error : "Could not check answer");
         return;
       }
+      setCurrentCoins((prev) => Math.max(prev - currentDifficulty.coinCost, 0));
+      if ("securedPoints" in data && typeof data.securedPoints === "number") {
+        setCurrentScore(data.securedPoints);
+      } else if ("pointsAfterWrong" in data && typeof data.pointsAfterWrong === "number") {
+        setCurrentScore(data.pointsAfterWrong);
+      }
       setLastAnswer(data as AnswerOk);
     } catch {
       answerLockRef.current = false;
@@ -598,6 +730,29 @@ export function DailyTrivia({ initialDateParam }: Props) {
       const prevStage = Math.floor(i / LEVELS_PER_STAGE);
       if (nextStage > prevStage) {
         setPendingStageIndex(nextStage);
+      }
+      const nextStageStart = nextStage * LEVELS_PER_STAGE;
+      const nextStageCount = Math.min(
+        LEVELS_PER_STAGE,
+        Math.max(total - nextStageStart, 0),
+      );
+      const nextStageQuestionNumber = next - nextStageStart + 1;
+      const nextDifficulty = getDifficultyForStageQuestion(
+        Math.max(nextStageQuestionNumber, 1),
+        Math.max(nextStageCount, 1),
+      );
+      const currentStageStart = prevStage * LEVELS_PER_STAGE;
+      const currentStageCount = Math.min(
+        LEVELS_PER_STAGE,
+        Math.max(total - currentStageStart, 0),
+      );
+      const currentStageQuestionNumber = i - currentStageStart + 1;
+      const currentDifficulty = getDifficultyForStageQuestion(
+        Math.max(currentStageQuestionNumber, 1),
+        Math.max(currentStageCount, 1),
+      );
+      if (nextDifficulty.band !== currentDifficulty.band) {
+        setPendingDifficultyIntro(nextDifficulty.band);
       }
       return next;
     });
@@ -753,6 +908,9 @@ export function DailyTrivia({ initialDateParam }: Props) {
       setSubChannel(preferredPlayChannel);
       setIsTrialSession(true);
       trialFailureRecordedRef.current = false;
+      leaderboardSubmittedRef.current = false;
+      setCurrentCoins(TRIAL_COIN_GRANT);
+      setCurrentScore(0);
       if (resumeIndex !== null) {
         setCurrentIndex(resumeIndex);
         setPendingStageIndex(Math.floor(resumeIndex / LEVELS_PER_STAGE));
@@ -760,6 +918,7 @@ export function DailyTrivia({ initialDateParam }: Props) {
         setCurrentIndex(0);
         setPendingStageIndex(0);
       }
+      setPendingDifficultyIntro("easy");
       setStarted(true);
       await fetchTrialStatus();
     } catch {
@@ -848,6 +1007,7 @@ export function DailyTrivia({ initialDateParam }: Props) {
       setSubscribed(true);
       setSubChannel(channel);
       setLastChargedDate(quiz.date);
+      setCurrentCoins((prev) => prev + SUBSCRIPTION_COIN_GRANT);
     } catch {
       setError("Network error.");
     } finally {
@@ -887,6 +1047,7 @@ export function DailyTrivia({ initialDateParam }: Props) {
         lastChargedDate: quiz.date,
       });
       setLastChargedDate(quiz.date);
+      setCurrentCoins((prev) => prev + SUBSCRIPTION_COIN_GRANT);
       return true;
     } catch {
       setError("Network error.");
@@ -990,6 +1151,16 @@ export function DailyTrivia({ initialDateParam }: Props) {
           <p className="mt-6 font-(family-name:--font-stage) text-5xl font-bold tabular-nums tracking-tight text-white sm:text-6xl">
             {formatPoints(gameEnd.points)}
           </p>
+          <div className="mt-5 grid w-full gap-2 sm:grid-cols-2">
+            <div className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-center">
+              <p className="text-[10px] uppercase tracking-wide text-slate-500">Coins left</p>
+              <p className="text-sm font-semibold text-amber-200">{currentCoins}</p>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-center">
+              <p className="text-[10px] uppercase tracking-wide text-slate-500">Leaderboard rank</p>
+              <p className="text-sm font-semibold text-sky-300">{playerRank ? `#${playerRank}` : "Unranked"}</p>
+            </div>
+          </div>
           <p className="mt-5 max-w-md text-sm leading-relaxed text-slate-400">{sub}</p>
           <p className="mt-8 text-xs text-slate-600">
             Subscription remains active. Send {DEFAULT_OPT_OUT_KEYWORD} to {DEFAULT_SHORTCODE} to opt out.
@@ -1017,47 +1188,22 @@ export function DailyTrivia({ initialDateParam }: Props) {
     const subscriptionExpiresOn = addOneDay(lastChargedDate);
     const subscriptionExpiresLabel = formatLagosExpiryDateTime(subscriptionExpiresOn);
     return (
-      <div className="grid gap-6 lg:grid-cols-[1fr_280px] lg:items-stretch">
-        <div className="flex flex-col justify-between rounded-4xl border border-white/[0.07] bg-linear-to-b from-slate-900/80 to-slate-950/90 p-8 sm:p-10">
-          <div className="space-y-4">
-            <h2 className="font-(family-name:--font-stage) text-2xl font-bold uppercase tracking-tight text-white sm:text-3xl">
-              MTN VAS trivia service
-            </h2>
-            <p className="rounded-xl border border-amber-500/20 bg-amber-500/6 px-4 py-3 text-lg leading-relaxed text-amber-100/80">
-              <span className="font-semibold text-amber-200">Consent and charging notice:</span> by activating, you confirm opt-in for
-              daily trivia access and billing through MTN infrastructure.
-            </p>
-            <p className="text-sm text-slate-500">
-              Questions cover general knowledge, sports, entertainment, lifestyle, and current affairs.
-            </p>
-            <p className="text-xs text-slate-600">
-              Send <strong>{DEFAULT_OPT_OUT_KEYWORD}</strong> to <strong>{DEFAULT_SHORTCODE}</strong> anytime to opt out.
-            </p>
+      <div className="space-y-6">
+      <div className="grid gap-6 lg:grid-cols-[1fr_320px] lg:items-stretch">
+        <div className="flex flex-col justify-between overflow-hidden rounded-4xl border border-white/[0.07] bg-linear-to-b from-slate-900/80 to-slate-950/90 p-0">
+          <div className="relative h-full min-h-[420px] w-full overflow-hidden bg-black/20">
+            <img
+              src="/trivia-home-hero.png"
+              alt="Trivia game visual"
+              className="h-full w-full object-cover object-center"
+            />
           </div>
-          <div className="mt-8 flex flex-wrap items-end justify-between gap-4 border-t border-white/6 pt-8">
-            <div>
-              <p className="text-[10px] font-medium uppercase tracking-widest text-slate-500">
-                Quiz date
-              </p>
-              <p className="mt-1 font-mono text-sm text-slate-300">{quiz.date}</p>
-            </div>
-            <div className="text-right">
-              <p className="text-[10px] font-medium uppercase tracking-widest text-slate-500">
-                Levels
-              </p>
-              <p className="mt-1 font-(family-name:--font-stage) text-2xl font-bold text-white">
-                {totalLevels || total}
-              </p>
-            </div>
-          </div>
+          
         </div>
 
         <div className="flex flex-col justify-center rounded-4xl border border-amber-500/20 bg-linear-to-b from-amber-950/40 to-slate-950 p-8 text-center">
           {!authenticated && !canPlayNow ? (
             <>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-amber-400/80">
-                Web access
-              </p>
               <div className="mt-4 grid grid-cols-2 gap-2 rounded-full border border-white/10 bg-black/25 p-1">
                 <button
                   type="button"
@@ -1250,8 +1396,14 @@ export function DailyTrivia({ initialDateParam }: Props) {
                     if (renewed) {
                       setIsTrialSession(false);
                       trialFailureRecordedRef.current = false;
+                      leaderboardSubmittedRef.current = false;
                       setCurrentIndex(0);
                       setPendingStageIndex(0);
+                      setPendingDifficultyIntro("easy");
+                      setCurrentScore(0);
+                      if (currentCoins <= 0) {
+                        setCurrentCoins(SUBSCRIPTION_COIN_GRANT);
+                      }
                       setStarted(true);
                     }
                     return;
@@ -1265,6 +1417,11 @@ export function DailyTrivia({ initialDateParam }: Props) {
                   }
                   setIsTrialSession(false);
                   trialFailureRecordedRef.current = false;
+                  leaderboardSubmittedRef.current = false;
+                  setPendingDifficultyIntro("easy");
+                  if (currentCoins <= 0) {
+                    setCurrentCoins(SUBSCRIPTION_COIN_GRANT);
+                  }
                   setStarted(true);
                 }}
                 className="mt-6 w-full rounded-full bg-linear-to-r from-amber-400 via-amber-500 to-amber-600 py-4 text-sm font-bold uppercase tracking-widest text-slate-950 shadow-lg shadow-amber-900/30 transition hover:brightness-105 disabled:opacity-50"
@@ -1291,6 +1448,20 @@ export function DailyTrivia({ initialDateParam }: Props) {
               >
                 Sign out
               </button>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <Link
+                  href="/leaderboard"
+                  className="rounded-full border border-white/20 py-2 text-center text-[11px] font-semibold uppercase tracking-widest text-slate-300 hover:bg-white/5"
+                >
+                  Leaderboard
+                </Link>
+                <Link
+                  href="/subscription"
+                  className="rounded-full border border-white/20 py-2 text-center text-[11px] font-semibold uppercase tracking-widest text-slate-300 hover:bg-white/5"
+                >
+                  Subscription
+                </Link>
+              </div>
             </>
           )}
 
@@ -1304,62 +1475,44 @@ export function DailyTrivia({ initialDateParam }: Props) {
               {error}
             </p>
           )}
-          <button
-            type="button"
-            onClick={() => window.history.back()}
-            className="mt-3 w-full rounded-full border border-white/15 py-3 text-xs font-semibold uppercase tracking-widest text-slate-300"
-          >
-            Back
-          </button>
+          {authenticated && (
+            <button
+              type="button"
+              onClick={() => window.history.back()}
+              className="mt-3 w-full rounded-full border border-white/15 py-3 text-xs font-semibold uppercase tracking-widest text-slate-300"
+            >
+              Back
+            </button>
+          )}
 
-          <div className="mt-5 rounded-xl border border-white/10 bg-black/30 p-3 text-left">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">
-              Subscription history
-            </p>
-            {!authenticated ? (
-              <p className="mt-2 text-xs text-slate-500">
-                Sign in to view Active/Inactive status and recent transactions.
-              </p>
-            ) : historyLoading ? (
-              <p className="mt-2 text-xs text-slate-500">Loading history…</p>
-            ) : (
-              <>
-                <p className="mt-2 text-xs text-slate-300">
-                  Status:{" "}
-                  <span className={historyStatus?.active ? "text-emerald-300" : "text-rose-300"}>
-                    {historyStatus?.active ? "Active" : "Inactive"}
-                  </span>
-                  {historyStatus?.activeVia ? ` via ${historyStatus.activeVia}` : ""}
-                </p>
-                {historyItems.length === 0 ? (
-                  <p className="mt-2 text-xs text-slate-500">No recent transactions.</p>
-                ) : (
-                  <div className="mt-2 space-y-1.5">
-                    {historyItems.map((item) => (
-                      <div
-                        key={item.id}
-                        className="rounded-md border border-white/6 bg-white/3 px-2.5 py-1.5 text-[11px] text-slate-300"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="uppercase tracking-wide text-slate-400">
-                            {item.eventType.replaceAll("_", " ")}
-                          </span>
-                          <span>{new Date(item.occurredAt).toLocaleDateString("en-NG")}</span>
-                        </div>
-                        <div className="mt-0.5 text-slate-500">
-                          {item.provider} · {item.status}
-                          {typeof item.amountNaira === "number"
-                            ? ` · ${formatNaira(item.amountNaira)}`
-                            : ""}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
+          
         </div>
+      </div>
+      <div className="grid gap-4 lg:grid-cols-3">
+        <section className="rounded-2xl border border-white/10 bg-slate-950/55 p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-amber-400/90">FAQs</p>
+          <p className="mt-3 text-xs leading-relaxed text-slate-400">
+            - Start by signing in or creating an account.
+            <br />- Activate subscription to play full sessions.
+          </p>
+        </section>
+        <section className="rounded-2xl border border-white/10 bg-slate-950/55 p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-amber-400/90">Terms</p>
+          <p className="mt-3 text-xs leading-relaxed text-slate-400">
+            - Daily subscription fee applies.
+            <br />- Game operates as MTN VAS service.
+            <br />- Access and billing follow telco and payment policies.
+          </p>
+        </section>
+        <section className="rounded-2xl border border-white/10 bg-slate-950/55 p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-amber-400/90">Features</p>
+          <p className="mt-3 text-xs leading-relaxed text-slate-400">
+            - Real-time timer and answer validation.
+            <br />- 50:50 and Ask-the-Audience lifelines.
+            <br />- Subscription history and expiry display.
+          </p>
+        </section>
+      </div>
       </div>
     );
   }
@@ -1368,27 +1521,48 @@ export function DailyTrivia({ initialDateParam }: Props) {
     return null;
   }
 
-  if (pendingStageIndex !== null && pendingStageIndex === currentStageIndex) {
-    const levelStart = pendingStageIndex * LEVELS_PER_STAGE + 1;
-    const levelEnd = Math.min((pendingStageIndex + 1) * LEVELS_PER_STAGE, total);
+  if (
+    (pendingStageIndex !== null && pendingStageIndex === currentStageIndex) ||
+    pendingDifficultyIntro !== null
+  ) {
+    const levelStart = currentStageIndex * LEVELS_PER_STAGE + 1;
+    const levelEnd = Math.min((currentStageIndex + 1) * LEVELS_PER_STAGE, total);
+    const introDifficulty =
+      pendingDifficultyIntro ??
+      getDifficultyForStageQuestion(
+        Math.max(currentStageQuestionNumber, 1),
+        Math.max(questionsInCurrentStage, 1),
+      ).band;
+    const introMeta =
+      introDifficulty === "easy"
+        ? { title: "Easy Level", coinCost: 10, timer: "10s", color: "text-emerald-300" }
+        : introDifficulty === "medium"
+          ? { title: "Medium Level", coinCost: 15, timer: "12s", color: "text-amber-300" }
+          : { title: "Hard Level", coinCost: 20, timer: "15s", color: "text-rose-300" };
     return (
       <div className="mx-auto max-w-lg space-y-6 text-center">
         <div className="rounded-4xl border border-amber-500/25 bg-linear-to-br from-amber-500/8 via-slate-900/80 to-slate-950 px-6 py-10 sm:px-10 sm:py-12">
           <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-amber-400/90">
-            Level {pendingStageIndex + 1}
+            Stage {currentStageIndex + 1}
           </p>
-          <p className="mt-4 text-sm text-slate-300">
-            Questions {levelStart} to {levelEnd}
+          <p className={`mt-4 font-(family-name:--font-stage) text-3xl font-bold ${introMeta.color}`}>
+            {introMeta.title}
+          </p>
+          <p className="mt-3 text-sm text-slate-300">
+            Questions {levelStart} to {levelEnd} · {introMeta.coinCost} coins/question · {introMeta.timer} timer
           </p>
           <p className="mt-2 text-xs text-slate-500">
-            Stage {pendingStageIndex + 1} of {totalStages}
+            Stage {currentStageIndex + 1} of {totalStages}
           </p>
           <button
             type="button"
-            onClick={() => setPendingStageIndex(null)}
+            onClick={() => {
+              setPendingStageIndex(null);
+              setPendingDifficultyIntro(null);
+            }}
             className="mt-8 w-full rounded-full bg-linear-to-r from-amber-400 via-amber-500 to-amber-600 py-4 text-sm font-bold uppercase tracking-widest text-slate-950"
           >
-            Continue to level {pendingStageIndex + 1}
+            Continue
           </button>
           <button
             type="button"
@@ -1452,6 +1626,27 @@ export function DailyTrivia({ initialDateParam }: Props) {
                 </div>
               </div>
             )}
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-4">
+            <div className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-center">
+              <p className="text-[10px] uppercase tracking-wide text-slate-500">Coins</p>
+              <p className="text-sm font-semibold text-amber-200">{currentCoins}</p>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-center">
+              <p className="text-[10px] uppercase tracking-wide text-slate-500">Score</p>
+              <p className="text-sm font-semibold text-emerald-300">{currentScore} pts</p>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-center">
+              <p className="text-[10px] uppercase tracking-wide text-slate-500">Rank</p>
+              <p className="text-sm font-semibold text-sky-300">{playerRank ? `#${playerRank}` : "—"}</p>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-center">
+              <p className="text-[10px] uppercase tracking-wide text-slate-500">Mode</p>
+              <p className="text-sm font-semibold text-amber-300">
+                {currentDifficulty.label} ({currentDifficulty.coinCost}c)
+              </p>
+            </div>
           </div>
 
           <p className="font-(family-name:--font-stage) text-[1.35rem] font-medium leading-snug text-white sm:text-2xl sm:leading-snug">
@@ -1579,6 +1774,22 @@ export function DailyTrivia({ initialDateParam }: Props) {
           <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:flex-wrap">
             {!showReveal && (
               <>
+                {currentCoins < currentDifficulty.coinCost && (
+                  <button
+                    type="button"
+                    disabled={subscriptionBusy}
+                    onClick={async () => {
+                      if (subscribed) {
+                        await renewIfNeeded();
+                        return;
+                      }
+                      setStarted(false);
+                    }}
+                    className="order-4 w-full rounded-full border border-amber-400/40 bg-amber-500/10 py-3 text-xs font-semibold uppercase tracking-widest text-amber-200"
+                  >
+                    Top up coins via VAS
+                  </button>
+                )}
                 {currentIndex > 0 && (
                   <button
                     type="button"
@@ -1604,7 +1815,7 @@ export function DailyTrivia({ initialDateParam }: Props) {
                   onClick={() => void submitAnswer()}
                   className="order-1 flex-1 rounded-full bg-linear-to-r from-emerald-600 to-emerald-500 py-4 text-sm font-bold uppercase tracking-widest text-white shadow-lg shadow-emerald-900/30 transition enabled:hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 sm:order-3"
                 >
-                  {submitting ? "Checking…" : "Final answer"}
+                  {submitting ? "Checking…" : `Final answer · ${currentDifficulty.coinCost} coins`}
                 </button>
               </>
             )}
