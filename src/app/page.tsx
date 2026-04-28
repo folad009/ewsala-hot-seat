@@ -26,9 +26,6 @@ export default async function Home({
 
       <div className="mx-auto w-full max-w-5xl flex-1 px-4 py-8 sm:px-8 sm:py-12">
         <header className="mb-8 space-y-3 sm:mb-10 text-center">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-amber-400/90">
-            MTN value added service
-          </p>
           <h1 className="font-(family-name:--font-stage) text-4xl font-bold uppercase leading-[0.95] tracking-tight text-slate-50 sm:text-5xl">
             Eswala Trivia
           </h1>

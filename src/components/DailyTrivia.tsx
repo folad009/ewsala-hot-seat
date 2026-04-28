@@ -1023,10 +1023,6 @@ export function DailyTrivia({ initialDateParam }: Props) {
             <h2 className="font-(family-name:--font-stage) text-2xl font-bold uppercase tracking-tight text-white sm:text-3xl">
               MTN VAS trivia service
             </h2>
-            <p className="text-sm leading-relaxed text-slate-400">
-              Access is available via MTN shortcode <strong className="text-amber-200">{DEFAULT_SHORTCODE}</strong> and this
-              web portal. Subscription is {formatNaira(DAILY_SUBSCRIPTION_FEE_NAIRA)} daily, including eligible renewals.
-            </p>
             <p className="rounded-xl border border-amber-500/20 bg-amber-500/6 px-4 py-3 text-lg leading-relaxed text-amber-100/80">
               <span className="font-semibold text-amber-200">Consent and charging notice:</span> by activating, you confirm opt-in for
               daily trivia access and billing through MTN infrastructure.
