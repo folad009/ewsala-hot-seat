@@ -1500,15 +1500,13 @@ export function DailyTrivia({ initialDateParam }: Props) {
           <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-amber-400/90">Terms</p>
           <p className="mt-3 text-xs leading-relaxed text-slate-400">
             - Daily subscription fee applies.
-            <br />- Game operates as MTN VAS service.
-            <br />- Access and billing follow telco and payment policies.
+            <br />- Access and billing follow telco policies.
           </p>
         </section>
         <section className="rounded-2xl border border-white/10 bg-slate-950/55 p-4">
           <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-amber-400/90">Features</p>
           <p className="mt-3 text-xs leading-relaxed text-slate-400">
-            - Real-time timer and answer validation.
-            <br />- 50:50 and Ask-the-Audience lifelines.
+            - 50:50 and Ask-the-Audience lifelines.
             <br />- Subscription history and expiry display.
           </p>
         </section>
